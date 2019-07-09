@@ -32,6 +32,8 @@ enum merge_result bch2_reflink_p_merge(struct bch_fs *c,
 	struct bkey_s_reflink_p l = bkey_s_to_reflink_p(_l);
 	struct bkey_s_reflink_p r = bkey_s_to_reflink_p(_r);
 
+	return BCH_MERGE_NOMERGE;
+
 	if (le64_to_cpu(l.v->idx) + l.k->size != le64_to_cpu(r.v->idx))
 		return BCH_MERGE_NOMERGE;
 
