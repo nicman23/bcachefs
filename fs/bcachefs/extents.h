@@ -306,6 +306,14 @@ static inline struct bkey_ptrs_c bch2_bkey_ptrs_c(struct bkey_s_c k)
 			to_entry(&s.v->ptrs[s.v->nr_blocks]),
 		};
 	}
+	case KEY_TYPE_reflink_v: {
+		struct bkey_s_c_reflink_v r = bkey_s_c_to_reflink_v(k);
+
+		return (struct bkey_ptrs_c) {
+			r.v->start,
+			bkey_val_end(r),
+		};
+	}
 	default:
 		return (struct bkey_ptrs_c) { NULL, NULL };
 	}
@@ -450,17 +458,24 @@ static inline bool bkey_extent_is_data(const struct bkey *k)
 	switch (k->type) {
 	case KEY_TYPE_btree_ptr:
 	case KEY_TYPE_extent:
+	case KEY_TYPE_reflink_p:
+	case KEY_TYPE_reflink_v:
 		return true;
 	default:
 		return false;
 	}
 }
 
+/*
+ * Should extent be counted under inode->i_sectors?
+ */
 static inline bool bkey_extent_is_allocation(const struct bkey *k)
 {
 	switch (k->type) {
 	case KEY_TYPE_extent:
 	case KEY_TYPE_reservation:
+	case KEY_TYPE_reflink_p:
+	case KEY_TYPE_reflink_v:
 		return true;
 	default:
 		return false;

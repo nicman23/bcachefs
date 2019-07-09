@@ -9,6 +9,16 @@
 
 #include <linux/uio.h>
 
+struct quota_res;
+
+int bch2_extent_update(struct btree_trans *,
+		       struct bch_inode_info *,
+		       struct disk_reservation *,
+		       struct quota_res *,
+		       struct btree_iter *,
+		       struct bkey_i *,
+		       u64, bool, bool, s64 *);
+
 int bch2_writepage(struct page *, struct writeback_control *);
 int bch2_readpage(struct file *, struct page *);
 
@@ -29,6 +39,9 @@ int bch2_fsync(struct file *, loff_t, loff_t, int);
 
 int bch2_truncate(struct bch_inode_info *, struct iattr *);
 long bch2_fallocate_dispatch(struct file *, int, loff_t, loff_t);
+
+loff_t bch2_remap_file_range(struct file *, loff_t, struct file *,
+			     loff_t, loff_t, unsigned);
 
 loff_t bch2_llseek(struct file *, loff_t, int);
 

@@ -1078,6 +1078,9 @@ static int bch2_fill_extent(struct bch_fs *c,
 		struct extent_ptr_decoded p;
 		int ret;
 
+		if (k.k->type == KEY_TYPE_reflink_v)
+			flags |= FIEMAP_EXTENT_SHARED;
+
 		bkey_for_each_ptr_decode(k.k, ptrs, p, entry) {
 			int flags2 = 0;
 			u64 offset = p.ptr.offset;
@@ -1131,12 +1134,28 @@ static int bch2_fiemap(struct inode *vinode, struct fiemap_extent_info *info,
 
 	for_each_btree_key(&trans, iter, BTREE_ID_EXTENTS,
 			   POS(ei->v.i_ino, start >> 9), 0, k, ret) {
+		unsigned offset_into_extent = 0;
+		unsigned sectors = k.k->size;
+
 		if (bkey_cmp(bkey_start_pos(k.k),
 			     POS(ei->v.i_ino, (start + len) >> 9)) >= 0)
 			break;
 
 		bkey_reassemble(&cur.k, k);
 		k = bkey_i_to_s_c(&cur.k);
+
+		ret = bch2_read_indirect_extent(&trans, iter,
+					&offset_into_extent, &cur.k);
+		if (ret)
+			break;
+
+		sectors -= offset_into_extent;
+		bch2_cut_front(POS(k.k->p.inode,
+				   bkey_start_offset(k.k) + offset_into_extent),
+			       &cur.k);
+
+		if (sectors < k.k->size)
+			bch2_key_resize(&cur.k.k, sectors);
 
 		if (bkey_extent_is_data(k.k) ||
 		    k.k->type == KEY_TYPE_reservation) {
@@ -1203,6 +1222,7 @@ static const struct file_operations bch_file_operations = {
 #ifdef CONFIG_COMPAT
 	.compat_ioctl	= bch2_compat_fs_ioctl,
 #endif
+	.remap_file_range = bch2_remap_file_range,
 };
 
 static const struct inode_operations bch_file_inode_operations = {

@@ -745,7 +745,8 @@ void __bch2_cut_front(struct bpos where, struct bkey_s k)
 	case KEY_TYPE_error:
 	case KEY_TYPE_cookie:
 		break;
-	case KEY_TYPE_extent: {
+	case KEY_TYPE_extent:
+	case KEY_TYPE_reflink_v: {
 		struct bkey_ptrs ptrs = bch2_bkey_ptrs(k);
 		union bch_extent_entry *entry;
 		bool seen_crc = false;
@@ -773,6 +774,12 @@ void __bch2_cut_front(struct bpos where, struct bkey_s k)
 				seen_crc = true;
 		}
 
+		break;
+	}
+	case KEY_TYPE_reflink_p: {
+		struct bkey_s_reflink_p p = bkey_s_to_reflink_p(k);
+
+		le64_add_cpu(&p.v->idx, sub);
 		break;
 	}
 	case KEY_TYPE_reservation:
@@ -946,7 +953,7 @@ bch2_extent_atomic_end(struct bkey_i *insert, struct btree_iter *iter)
 	struct btree *b = iter->l[0].b;
 	struct btree_node_iter	node_iter = iter->l[0].iter;
 	struct bkey_packed	*_k;
-	unsigned		nr_alloc_ptrs =
+	unsigned		nr_iters =
 		bch2_bkey_nr_alloc_ptrs(bkey_i_to_s_c(insert));
 
 	BUG_ON(iter->uptodate > BTREE_ITER_NEED_PEEK);
@@ -960,9 +967,16 @@ bch2_extent_atomic_end(struct bkey_i *insert, struct btree_iter *iter)
 		if (bkey_cmp(insert->k.p, bkey_start_pos(k.k)) <= 0)
 			break;
 
-		nr_alloc_ptrs += bch2_bkey_nr_alloc_ptrs(k);
+		switch (k.k->type) {
+		case KEY_TYPE_extent:
+			nr_iters += bch2_bkey_nr_alloc_ptrs(k);
+			break;
+		case KEY_TYPE_reflink_p:
+			nr_iters++;
+			break;
+		}
 
-		if (nr_alloc_ptrs > 20) {
+		if (nr_iters > 20) {
 			BUG_ON(bkey_cmp(k.k->p, bkey_start_pos(&insert->k)) <= 0);
 			return bpos_min(insert->k.p, k.k->p);
 		}
