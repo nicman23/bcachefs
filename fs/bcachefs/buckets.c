@@ -1582,6 +1582,9 @@ static int bch2_trans_mark_reflink_p(struct btree_trans *trans,
 	struct bkey_s_reflink_v r_v;
 	int ret;
 
+	if (flags & BCH_BUCKET_MARK_OVERWRITE)
+		return 0;
+
 	if ((flags & BCH_BUCKET_MARK_OVERWRITE) &&
 	    -sectors != p.k->size)
 		return 0;

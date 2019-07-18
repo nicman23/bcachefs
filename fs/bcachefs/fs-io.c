@@ -2937,8 +2937,8 @@ loff_t bch2_remap_file_range(struct file *file_src, loff_t pos_src,
 	if (ret)
 		goto out_unlock;
 
-	mark_range_unallocated(src, pos_src, pos_src + len);
-	mark_range_unallocated(dst, pos_dst, pos_dst + len);
+	mark_range_unallocated(src, 0, U64_MAX);
+	//mark_range_unallocated(src, pos_src, pos_src + len);
 
 	ret = bch2_remap_range(c, dst,
 			       POS(dst->v.i_ino, pos_dst >> 9),
