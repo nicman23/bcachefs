@@ -1003,10 +1003,11 @@ static void bch2_add_page_sectors(struct bio *bio, struct bkey_s_c k)
 }
 
 static void readpage_bio_extend(struct readpages_iter *iter,
-				struct bio *bio, u64 offset,
+				struct bio *bio,
+				unsigned sectors_this_extent,
 				bool get_more)
 {
-	while (bio_end_sector(bio) < offset &&
+	while (bio_sectors(bio) < sectors_this_extent &&
 	       bio->bi_vcnt < bio->bi_max_vecs) {
 		pgoff_t page_offset = bio_end_sector(bio) >> PAGE_SECTOR_SHIFT;
 		struct page *page = readpage_iter_next(iter);
@@ -1063,7 +1064,7 @@ static void bchfs_read(struct btree_trans *trans, struct btree_iter *iter,
 	while (1) {
 		BKEY_PADDED(k) tmp;
 		struct bkey_s_c k;
-		unsigned bytes, offset_into_extent;
+		unsigned bytes, sectors, offset_into_extent;
 
 		bch2_btree_iter_set_pos(iter,
 				POS(inum, rbio->bio.bi_iter.bi_sector));
@@ -1085,6 +1086,7 @@ static void bchfs_read(struct btree_trans *trans, struct btree_iter *iter,
 
 		offset_into_extent = iter->pos.offset -
 			bkey_start_offset(k.k);
+		sectors = k.k->size - offset_into_extent;
 
 		if (readpages_iter) {
 			bool want_full_extent = false;
@@ -1099,13 +1101,11 @@ static void bchfs_read(struct btree_trans *trans, struct btree_iter *iter,
 							     (p.crc.compression_type != 0));
 			}
 
-			readpage_bio_extend(readpages_iter,
-					    &rbio->bio, k.k->p.offset,
-					    want_full_extent);
+			readpage_bio_extend(readpages_iter, &rbio->bio,
+					    sectors, want_full_extent);
 		}
 
-		bytes = min_t(unsigned, bio_sectors(&rbio->bio),
-			      (k.k->size - offset_into_extent)) << 9;
+		bytes = min(sectors, bio_sectors(&rbio->bio)) << 9;
 		swap(rbio->bio.bi_iter.bi_size, bytes);
 
 		if (rbio->bio.bi_iter.bi_size == bytes)
