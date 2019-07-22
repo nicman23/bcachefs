@@ -401,9 +401,6 @@ static inline void btree_insert_entry_checks(struct btree_trans *trans,
 		BUG_ON(bkey_cmp(bkey_start_pos(&i->k->k), i->iter->pos));
 		EBUG_ON((i->iter->flags & BTREE_ITER_IS_EXTENTS) &&
 			!bch2_extent_is_atomic(i->k, i->iter));
-
-		EBUG_ON((i->iter->flags & BTREE_ITER_IS_EXTENTS) &&
-			!(trans->flags & BTREE_INSERT_ATOMIC));
 	}
 
 	BUG_ON(debug_check_bkeys(c) &&
@@ -949,6 +946,8 @@ struct btree_insert_entry *bch2_trans_update(struct btree_trans *trans,
 					     struct btree_insert_entry entry)
 {
 	struct btree_insert_entry *i;
+
+	btree_insert_entry_checks(trans, &entry);
 
 	BUG_ON(trans->nr_updates >= trans->nr_iters + 4);
 

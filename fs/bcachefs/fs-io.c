@@ -2592,8 +2592,6 @@ static long bch2_fcollapse(struct bch_inode_info *inode,
 	struct address_space *mapping = inode->v.i_mapping;
 	struct btree_trans trans;
 	struct btree_iter *src, *dst;
-	BKEY_PADDED(k) copy;
-	struct bkey_s_c k;
 	loff_t new_size;
 	int ret;
 
@@ -2625,71 +2623,101 @@ static long bch2_fcollapse(struct bch_inode_info *inode,
 	if (ret)
 		goto err;
 
+	pr_info("collapse at dst %llu src %llu",
+		offset >> 9,
+		(offset + len) >> 9);
+	pr_info("extents before collapse:");
+	dump_extents(c, inode->v.i_ino, offset >> 9);
+
+	ret = __bch2_fpunch(c, inode, offset >> 9,
+			    (offset + len) >> 9,
+			    &inode->ei_journal_seq);
+	if (ret)
+		goto err;
+
+	pr_info("extents after fpunch:");
+	dump_extents(c, inode->v.i_ino, offset >> 9);
+
 	dst = bch2_trans_get_iter(&trans, BTREE_ID_EXTENTS,
 			POS(inode->v.i_ino, offset >> 9),
-			BTREE_ITER_SLOTS|BTREE_ITER_INTENT);
+			BTREE_ITER_INTENT);
 	BUG_ON(IS_ERR_OR_NULL(dst));
 
 	src = bch2_trans_get_iter(&trans, BTREE_ID_EXTENTS,
-			POS_MIN, BTREE_ITER_SLOTS);
+			POS(inode->v.i_ino, (offset + len) >> 9),
+			BTREE_ITER_INTENT);
 	BUG_ON(IS_ERR_OR_NULL(src));
 
-	while (bkey_cmp(dst->pos,
-			POS(inode->v.i_ino,
-			    round_up(new_size, PAGE_SIZE) >> 9)) < 0) {
+	while (1) {
 		struct disk_reservation disk_res;
+		BKEY_PADDED(k) copy;
+		struct bkey_i delete;
+		struct bkey_s_c k;
+
+		char buf[200];
+
+		k = bch2_btree_iter_peek(src);
+		if ((ret = bkey_err(k)))
+			goto bkey_err;
+
+		if (!k.k || k.k->p.inode != inode->v.i_ino)
+			break;
+
+		bch2_bkey_val_to_text(&PBUF(buf), c, k);
+		pr_info("copying extent %s", buf);
+
+		BUG_ON(src->pos.offset != bkey_start_offset(k.k));
+
+		bch2_btree_iter_set_pos(dst,
+			POS(inode->v.i_ino, src->pos.offset - (len >> 9)));
 
 		ret = bch2_btree_iter_traverse(dst);
 		if (ret)
 			goto bkey_err;
 
-		bch2_btree_iter_set_pos(src,
-			POS(dst->pos.inode, dst->pos.offset + (len >> 9)));
-
-		k = bch2_btree_iter_peek_slot(src);
-		if ((ret = bkey_err(k)))
-			goto bkey_err;
-
 		bkey_reassemble(&copy.k, k);
-
-		bch2_cut_front(src->pos, &copy.k);
-		copy.k.k.p.offset -= len >> 9;
-
+		copy.k.k.p = dst->pos;
+		copy.k.k.p.offset += copy.k.k.size;
 		bch2_extent_trim_atomic(&copy.k, dst);
 
-		BUG_ON(bkey_cmp(dst->pos, bkey_start_pos(&copy.k.k)));
+		bch2_bkey_val_to_text(&PBUF(buf), c, bkey_i_to_s_c(&copy.k));
+		pr_info("dst %s", buf);
 
+		bch2_trans_update(&trans, BTREE_INSERT_ENTRY(dst, &copy.k));
+
+		bkey_init(&delete.k);
+		delete.k.p = src->pos;
+		bch2_key_resize(&delete.k, copy.k.k.size);
+
+		bch2_bkey_val_to_text(&PBUF(buf), c, bkey_i_to_s_c(&delete));
+		pr_info("src %s", buf);
+
+		bch2_trans_update(&trans, BTREE_INSERT_ENTRY(src, &delete));
+
+		/* We might end up splitting compressed extents: */
 		ret = bch2_disk_reservation_get(c, &disk_res, copy.k.k.size,
 				bch2_bkey_nr_dirty_ptrs(bkey_i_to_s_c(&copy.k)),
 				BCH_DISK_RESERVATION_NOFAIL);
 		BUG_ON(ret);
 
-		bch2_trans_begin_updates(&trans);
-
-		ret = bch2_extent_update(&trans, inode,
-				&disk_res, NULL,
-				dst, &copy.k,
-				0, true, true, NULL);
+		ret = bch2_trans_commit(&trans, &disk_res,
+					&inode->ei_journal_seq,
+					BTREE_INSERT_NOFAIL|
+					BTREE_INSERT_ATOMIC|
+					BTREE_INSERT_USE_RESERVE);
 		bch2_disk_reservation_put(c, &disk_res);
 bkey_err:
 		if (ret == -EINTR)
 			ret = 0;
 		if (ret)
 			goto err;
-		/*
-		 * XXX: if we error here we've left data with multiple
-		 * pointers... which isn't a _super_ serious problem...
-		 */
 
 		bch2_trans_cond_resched(&trans);
 	}
 	bch2_trans_unlock(&trans);
 
-	ret = __bch2_fpunch(c, inode,
-			round_up(new_size, block_bytes(c)) >> 9,
-			U64_MAX, &inode->ei_journal_seq);
-	if (ret)
-		goto err;
+	pr_info("extents after collapse:");
+	dump_extents(c, inode->v.i_ino, offset >> 9);
 
 	i_size_write(&inode->v, new_size);
 	mutex_lock(&inode->ei_update_lock);
