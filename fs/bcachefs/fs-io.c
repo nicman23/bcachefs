@@ -2563,6 +2563,28 @@ err:
 	return ret;
 }
 
+static void dump_extents(struct bch_fs *c, u64 ino, u64 offset)
+{
+	struct btree_trans trans;
+	struct btree_iter *iter;
+	struct bkey_s_c k;
+	char buf[200];
+	int ret;
+
+	bch2_trans_init(&trans, c, 0, 0);
+
+	for_each_btree_key(&trans, iter, BTREE_ID_EXTENTS,
+			   POS(ino, offset), 0, k, ret) {
+		if (k.k->p.inode != ino)
+			break;
+
+		bch2_bkey_val_to_text(&PBUF(buf), c, k);
+		pr_info("%s", buf);
+	}
+
+	bch2_trans_exit(&trans);
+}
+
 static long bch2_fcollapse(struct bch_inode_info *inode,
 			   loff_t offset, loff_t len)
 {
