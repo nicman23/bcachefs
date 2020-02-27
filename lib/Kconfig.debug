@@ -1704,8 +1704,9 @@ config FAULT_INJECTION_STACKTRACE_FILTER
 config ARCH_HAS_KCOV
 	bool
 	help
-	  Enable this option if you want to use the LatencyTOP tool
-	  to find out which userspace is blocking on what kernel operations.
+		An architecture should select this when it can successfully
+		build and run with CONFIG_KCOV. This typically requires
+		disabling instrumentation for some early boot code.
 
 config DYNAMIC_FAULT
 	bool "Enable dynamic fault support"
@@ -1713,9 +1714,6 @@ config DYNAMIC_FAULT
 	depends on DEBUG_FS
 
 source "kernel/trace/Kconfig"
-	  An architecture should select this when it can successfully
-	  build and run with CONFIG_KCOV. This typically requires
-	  disabling instrumentation for some early boot code.
 
 config CC_HAS_SANCOV_TRACE_PC
 	def_bool $(cc-option,-fsanitize-coverage=trace-pc)

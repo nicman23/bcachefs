@@ -9,6 +9,7 @@
 #include <linux/key.h>
 #include <linux/random.h>
 #include <linux/scatterlist.h>
+#include <crypto/skcipher.h>
 #include <crypto/algapi.h>
 #include <crypto/chacha.h>
 #include <crypto/hash.h>
